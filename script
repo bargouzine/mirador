@@ -1,0 +1,180 @@
+import time
+from selenium import webdriver
+from bs4 import BeautifulSoup
+from plyer import notification
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import NoSuchElementException
+import sqlite3
+import pygame
+import tkinter as tk
+
+def play_sound(file_path):
+    pygame.mixer.init()
+    pygame.mixer.music.load('C:/Program Files (x86)/snd_fragment_retrievewav-14728.mp3')
+    pygame.mixer.music.play()
+
+def authenticate(username, password):
+    connection = sqlite3.connect('C:/Program Files (x86)/data.db')
+    cursor = connection.cursor()
+
+    cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
+    result = cursor.fetchone()
+
+    cursor.close()
+    connection.close()
+
+    return result is not None
+
+from selenium.common.exceptions import TimeoutException
+
+def scrap_bank(driver, url, items_of_interest):
+    wait = WebDriverWait(driver, 10)  # Adjust the timeout as needed
+
+    while True:
+        try:
+            driver.get(url)
+
+            # Wait for the button to be clickable
+            wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '.inline_button')))
+
+            while True:
+                # Find the button element to click
+                button_element = driver.find_element(By.CSS_SELECTOR, '.inline_button')
+
+                # Click the button
+                button_element.click()
+
+                try:
+                    # Wait for the button to be clickable before proceeding
+                    wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".inline_button")))
+                except TimeoutException:
+                    # Handle the case when the button is not clickable within the timeout
+                    print("Button not clickable. Restarting...")
+                    break  # Exit the inner loop and restart from the beginning
+
+                page_source = BeautifulSoup(driver.page_source, 'html.parser')
+                bank_items = page_source.select('li[id*="item_"]')
+
+                parsed_items = {}
+                for item in bank_items:
+                    item_name = item.img['class'][1].replace('item_', '')
+                    parsed_items[item_name] = 0
+
+                found_items = []
+                translation_dict = {
+                    'watergun_opt-part': 'Aquasplash démonté',
+                    'remains': 'Cadavre de voyageur rongé',
+                    'big_pgun_part': 'Dévastator incomplet',
+                    'hmeat': 'Viande humaine',
+                    'chainsaw_part': 'Tronçonneuse incomplète',
+                    'rp_twin': 'Livre poussiéreux',
+                    'pilegun_upkit': 'Calibrateur',
+                    'jerrygun_part': 'PAJ démontée',
+                    'courroie': 'Courroie',
+                    'wood_bad': 'Souche de bois pourrie',
+                    'bone': 'Os',
+                    'engine_part': 'Moteur incomplet'
+                    # Add more translations as needed
+                }
+
+                for name in parsed_items:
+                    if name in items_of_interest:
+                        translated_name = translation_dict.get(name, name)
+                        found_items.append(translated_name)
+
+                if found_items:
+                    notification_title = 'Items Found'
+                    notification_message = f"The following items are found in the bank: {', '.join(found_items)}"
+                    notification.notify(
+                        title=notification_title,
+                        message=notification_message,
+                        app_icon=None,
+                        timeout=10
+                    )
+                    # Play the chime sound
+                    play_sound('C:/Program Files (x86)/snd_fragment_retrievewav-14728.mp3')
+
+                time.sleep(20)  # Wait for 20 seconds before the next iteration
+
+        except NoSuchElementException:
+            # Handle the case when the button element is not found
+            print("Button element not found. Restarting...")
+            continue
+
+def open_settings_window():
+    settings_window = tk.Toplevel(root)
+    settings_window.title("Item Settings")
+
+    # List of available items
+    available_items = [
+        'remains', 'watergun_opt_part', 'big_pgun_part', 'hmeat', 'chainsaw_part', 'rp_twin',
+        'pilegun_upkit', 'jerrygun_part', 'courroie', 'bone', 'engine_part', 'wood_bad'
+        # Add more items as needed
+    ]
+
+    # Variable to store selected items
+    selected_items = []
+
+    def save_items():
+        # Update items_of_interest with selected_items
+        global items_of_interest
+        items_of_interest = selected_items
+        settings_window.destroy()
+
+    def toggle_item(item):
+        if item in selected_items:
+            selected_items.remove(item)
+        else:
+            selected_items.append(item)
+
+    # Create checkboxes for each item
+    for item in available_items:
+        checkbox = tk.Checkbutton(settings_window, text=item, command=lambda item=item: toggle_item(item))
+        checkbox.pack(anchor=tk.W)
+
+    # Save button
+    save_button = tk.Button(settings_window, text="Save", command=save_items)
+    save_button.pack()
+
+# Create an instance of the Chrome WebDriver
+driver = webdriver.Chrome('C:/Program Files (x86)/chromedriver.exe')
+
+items_of_interest = ['remains', 'watergun_opt_part', 'big_pgun_part', 'hmeat', 'chainsaw_part', 'rp_twin',
+                     'pilegun_upkit', 'jerrygun_part', 'courroie']
+url = 'https://bbh.fred26.fr/?cid=5-2524&pg=bank'
+
+def login(username, password):
+    if authenticate(username, password):
+        scrap_bank(driver, url, items_of_interest)
+    else:
+        print("Invalid credentials. Please try again.")
+
+root = tk.Tk()
+root.title("Bank Scraper")
+
+# Login frame
+login_frame = tk.Frame(root)
+login_frame.pack(pady=10)
+
+# Username label and entry
+username_label = tk.Label(login_frame, text="Username:")
+username_label.grid(row=0, column=0, padx=5, pady=5)
+username_entry = tk.Entry(login_frame)
+username_entry.grid(row=0, column=1, padx=5, pady=5)
+
+# Password label and entry
+password_label = tk.Label(login_frame, text="Password:")
+password_label.grid(row=1, column=0, padx=5, pady=5)
+password_entry = tk.Entry(login_frame, show="*")
+password_entry.grid(row=1, column=1, padx=5, pady=5)
+
+# Login button
+login_button = tk.Button(login_frame, text="Login", command=lambda: login(username_entry.get(), password_entry.get()))
+login_button.grid(row=2, columnspan=2, padx=5, pady=5)
+
+# Settings button
+settings_button = tk.Button(root, text="Settings", command=open_settings_window)
+settings_button.pack()
+
+root.mainloop()
